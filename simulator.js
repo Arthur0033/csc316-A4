@@ -1,7 +1,7 @@
 
 
 // --- GTFS Data Loading ---
-const DATA_URL = 'http://localhost:8000/static_data/';
+const DATA_URL = './static_data/';
 
 async function loadCSV(fileName) {
     try {
