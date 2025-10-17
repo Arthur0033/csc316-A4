@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TTC 506 Live Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <style>
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .vehicle-label {
+      font-size: 10px;
+      font-weight: bold;
+      background: rgba(255, 255, 255, 0.7);
+      padding: 1px 3px;
+      border-radius: 3px;
+      pointer-events: none;
+    }
+    #delay-chart-container {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: white;
+      padding: 10px;
+      z-index: 1000;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      display: none; /* Hidden by default */
+      width: 300px; /* Adjust as needed */
+      height: 200px; /* Adjust as needed */
+    }
+    .chart-title {
+        font-weight: bold;
+        margin-bottom: 5px;
+        text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="controls" style="position: absolute; top: 10px; right: 10px; background: white; padding: 10px; z-index: 1000;">
+    <input type="date" id="sim-date">
+    <input type="range" id="sim-time" min="0" max="86399" step="1">
+    <span id="sim-time-label">00:00:00</span>
+    <br>
+    <label for="sim-speed">Speed:</label>
+    <input type="range" id="sim-speed" min="1" max="100" value="10">
+    <button id="start-sim">Start Simulation</button>
+  </div>
+  <div id="delay-chart-container">
+    <div class="chart-title" id="delay-chart-title"></div>
+    <svg id="delay-chart"></svg>
+  </div>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="simulator.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
+
