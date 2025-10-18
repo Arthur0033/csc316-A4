@@ -1,7 +1,7 @@
 
 
 // --- GTFS Data Loading ---
-const DATA_URL = './static_data/';
+const DATA_URL = 'http://localhost:8000/static_data/';
 
 async function loadCSV(fileName) {
     try {
@@ -45,6 +45,7 @@ const gtfs = {
     calendar_dates: [],
     delays: new Map(),
     delay_codes: new Map(),
+    stop_arrivals: new Map(), // New: To store pre-processed stop arrival data
 };
 
 // --- Load all data ---
@@ -121,6 +122,30 @@ async function loadAllGTFSData() {
     // Sort stop_times by sequence
     for (const [trip_id, stop_times] of gtfs.stop_times.entries()) {
         stop_times.sort((a, b) => parseInt(a.stop_sequence) - parseInt(b.stop_sequence));
+    }
+
+    // Populate gtfs.stop_arrivals for efficient lookup
+    for (const [trip_id, stop_times_for_trip] of gtfs.stop_times.entries()) {
+        const trip = gtfs.trips.get(trip_id);
+        if (!trip) continue; // Should not happen if data is consistent
+
+        for (const stop_time of stop_times_for_trip) {
+            const stop_id = stop_time.stop_id;
+            if (!gtfs.stop_arrivals.has(stop_id)) {
+                gtfs.stop_arrivals.set(stop_id, []);
+            }
+            gtfs.stop_arrivals.get(stop_id).push({
+                arrival_time_seconds: timeToSeconds(stop_time.arrival_time),
+                trip_id: trip_id,
+                route_id: trip.route_id,
+                service_id: trip.service_id,
+            });
+        }
+    }
+
+    // Sort arrivals for each stop by time
+    for (const arrivals of gtfs.stop_arrivals.values()) {
+        arrivals.sort((a, b) => a.arrival_time_seconds - b.arrival_time_seconds);
     }
 
     // Process shapes data
@@ -318,11 +343,31 @@ function hasDelayForRouteOnDate(route_short_name, date) {
     return gtfs.delays.has(route_short_name) && gtfs.delays.get(route_short_name).has(dateStr);
 }
 
-function getMonthlyDelaysForRoute(route_id) {
+function getMonthlyDelaysForRoute(route_short_name) {
+    const monthlyDelays = Array(12).fill(0);
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+    const delaysForRoute = gtfs.delays.get(route_short_name);
+
+    if (delaysForRoute) {
+        for (const [dateStr, delays] of delaysForRoute.entries()) {
+            const month = parseInt(dateStr.substring(5, 7)) - 1; // 0-indexed month
+            monthlyDelays[month] += delays.length;
+        }
+    }
+
+    return monthlyDelays.map((count, index) => ({
+        month: monthNames[index],
+        delay_count: count
+    }));
+}
+
+function getMonthlyDelaysForRoute(route_short_name) {
     const monthlyDelays = Array(12).fill(0);
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-    const delaysForRoute = gtfs.delays.get(route_id);
+    const delaysForRoute = gtfs.delays.get(route_short_name);
 
     if (delaysForRoute) {
         for (const [dateStr, delays] of delaysForRoute.entries()) {
@@ -335,6 +380,109 @@ function getMonthlyDelaysForRoute(route_id) {
     return monthlyDelays.map((count, index) => ({ month: monthNames[index], count: count }));
 }
 
+function getMonthlyDelaysForRouteByDay(route_short_name) {
+    const monthlyDelays = Array(12).fill(0).map(() => ({
+        month: "",
+        sunday: 0,
+        monday: 0,
+        tuesday: 0,
+        wednesday: 0,
+        thursday: 0,
+        friday: 0,
+        saturday: 0,
+        total: 0
+    }));
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+    const delaysForRoute = gtfs.delays.get(route_short_name);
+
+    if (delaysForRoute) {
+        for (const [dateStr, delays] of delaysForRoute.entries()) {
+            const date = new Date(dateStr);
+            const month = date.getMonth(); // 0-indexed month
+            const dayOfWeek = date.getDay(); // 0 for Sunday, 1 for Monday, etc.
+
+            monthlyDelays[month][dayNames[dayOfWeek]] += delays.length;
+            monthlyDelays[month].total += delays.length;
+        }
+    }
+
+    return monthlyDelays.map((data, index) => {
+        data.month = monthNames[index];
+        return data;
+    });
+}
+
+function getNextArrivalTimeForStop(stopId, currentSimulationTime, currentDate) {
+    const arrivalsAtStop = gtfs.stop_arrivals.get(stopId);
+    if (!arrivalsAtStop) {
+        // console.log(`Stop ${stopId}: No arrivals data.`); // Debug log
+        return null; // No arrivals for this stop
+    }
+
+    const dateStr = `${currentDate.getFullYear()}${(currentDate.getMonth() + 1).toString().padStart(2, '0')}${currentDate.getDate().toString().padStart(2, '0')}`;
+
+    // Cache active services for the current date
+    const activeServicesForDate = getActiveServicesForDate(currentDate);
+    // console.log(`Stop ${stopId}: Active services for ${dateStr}:`, activeServicesForDate); // Debug log
+
+    for (const arrival of arrivalsAtStop) {
+        // console.log(`Stop ${stopId}: Checking arrival at ${arrival.arrival_time_seconds}, trip ${arrival.trip_id}, service ${arrival.service_id}`); // Debug log
+        // Check if the service for this arrival is active today
+        if (!activeServicesForDate.has(arrival.service_id)) {
+            // console.log(`Stop ${stopId}: Service ${arrival.service_id} not active.`); // Debug log
+            continue;
+        }
+
+        if (arrival.arrival_time_seconds > currentSimulationTime) {
+            // console.log(`Stop ${stopId}: Found next arrival at ${arrival.arrival_time_seconds} (sim time: ${currentSimulationTime})`); // Debug log
+            return {
+                nextArrivalTime: arrival.arrival_time_seconds,
+                tripId: arrival.trip_id,
+                routeId: arrival.route_id
+            };
+        }
+    }
+
+    // console.log(`Stop ${stopId}: No upcoming vehicle after ${currentSimulationTime}.`); // Debug log
+    return null; // No upcoming vehicle for this stop
+}
+
+// Helper function to cache active services for a given date
+const activeServicesCache = new Map(); // Cache for active services
+
+function getActiveServicesForDate(date) {
+    const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+    if (activeServicesCache.has(dateKey)) {
+        return activeServicesCache.get(dateKey);
+    }
+
+    const dayOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
+    const dateStr = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`;
+
+    const addedServices = gtfs.calendar_dates
+        .filter(cd => cd.date === dateStr && cd.exception_type === '1')
+        .map(cd => cd.service_id);
+
+    const removedServices = gtfs.calendar_dates
+        .filter(cd => cd.date === dateStr && cd.exception_type === '2')
+        .map(cd => cd.service_id);
+
+    const activeServices = new Set(
+        gtfs.calendar
+            .filter(c => {
+                const startDate = c.start_date;
+                const endDate = c.end_date;
+                return dateStr >= startDate && dateStr <= endDate && c[dayOfWeek] === '1' && !removedServices.includes(c.service_id);
+            })
+            .map(c => c.service_id)
+            .concat(addedServices)
+    );
+    activeServicesCache.set(dateKey, activeServices);
+    return activeServices;
+}
+
 // --- Helper function to convert HH:MM:SS to seconds ---
 function timeToSeconds(timeStr) {
     if (!timeStr) return 0;
@@ -344,8 +492,29 @@ function timeToSeconds(timeStr) {
 
 // --- Main simulation function ---
 function runSimulation(date, timeInSeconds) {
-    const activeTrips = getActiveTrips(date);
+    console.log(`Running simulation for date: ${date} and time: ${timeInSeconds}`);
+    let activeTrips = getActiveTrips(date);
     const vehiclePositions = [];
+
+    // Filter activeTrips to only include routes 1, 2, and 500-600 series
+    activeTrips = activeTrips.filter(trip => {
+        const route = gtfs.routes.get(trip.route_id);
+        if (!route) return false;
+        const route_short_name = route.route_short_name;
+
+        // Check for routes 1, 2
+        if (route_short_name === '1' || route_short_name === '2') {
+            return true;
+        }
+
+        // Check for 500-600 series
+        const routeNum = parseInt(route_short_name);
+        if (!isNaN(routeNum) && routeNum >= 500 && routeNum <= 600) {
+            return true;
+        }
+
+        return true;
+    });
 
     for (const trip of activeTrips) {
         const position = getVehiclePosition(trip, timeInSeconds, date);
@@ -373,6 +542,7 @@ function runSimulation(date, timeInSeconds) {
         }
     }
 
+    console.log(`Returning ${vehiclePositions.length} vehicle positions.`);
     return vehiclePositions;
 }
 

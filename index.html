@@ -22,6 +22,15 @@
       border-radius: 3px;
       pointer-events: none;
     }
+    .stop-timer-icon {
+        pointer-events: auto; /* Ensure clicks are registered */
+    }
+    .stop-icon-inner {
+        width: 100%; /* Take full width of parent L.divIcon */
+        height: 100%; /* Take full height of parent L.divIcon */
+        border-radius: 50%; /* Make it circular */
+        pointer-events: auto; /* Ensure clicks are registered on the inner div */
+    }
     #delay-chart-container {
       position: absolute;
       bottom: 10px;
@@ -52,10 +61,19 @@
     <label for="sim-speed">Speed:</label>
     <input type="range" id="sim-speed" min="1" max="100" value="10">
     <button id="start-sim">Start Simulation</button>
+    <button id="toggle-stops">Toggle Stops</button>
   </div>
   <div id="delay-chart-container">
-    <div class="chart-title" id="delay-chart-title"></div>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <button id="prev-chart" style="background: none; border: none; font-size: 1.5em; cursor: pointer;">&lt;</button>
+        <div class="chart-title" id="delay-chart-title"></div>
+        <button id="next-chart" style="background: none; border: none; font-size: 1.5em; cursor: pointer;">&gt;</button>
+    </div>
     <svg id="delay-chart"></svg>
+  </div>
+  <div id="color-scale-container" style="position: absolute; bottom: 10px; right: 10px; background: white; padding: 10px; z-index: 1000; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+    <div class="scale-title" style="font-weight: bold; margin-bottom: 5px;">Next Arrival:</div>
+    <svg id="color-scale-svg" width="150" height="60"></svg>
   </div>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
